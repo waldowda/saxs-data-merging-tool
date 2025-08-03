@@ -56,7 +56,8 @@ Features:
 
 Citation:
     If you use this tool in your research, please cite:
-    Waldow, D. SAXS Data Merging Tool v1.0.0 (2025)
+    Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.0) [Computer software]. 
+    Zenodo. https://doi.org/10.5281/zenodo.16734022
 
 Changelog:
     v1.0.0 - Initial release with GUI interface
@@ -372,8 +373,8 @@ class SAXSMergeGUI(QMainWindow):
         # Contact/License info space - customize as needed
         info_label = QLabel(
             'Author: Dean Waldow | Email: waldowda@plu.edu\n'
-            'Institution: Pacific Lutheran University\n'
-            'License: MIT | Citation: Waldow, D. SAXS Data Merging Tool v1.0.0 (2025)'
+            'Institution: Pacific Lutheran University | License: MIT\n'
+            'DOI: 10.5281/zenodo.16734022 | GitHub: github.com/waldowda/saxs-data-merging-tool'
         )
         info_label.setFont(QFont('Arial', 9))
         info_label.setAlignment(Qt.AlignCenter)
