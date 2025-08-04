@@ -394,11 +394,11 @@ class SAXSMergeGUI(QMainWindow):
         self.file1_label = QLabel("No file selected")
         self.file2_label = QLabel("No file selected")
         
-        file_layout.addWidget(QLabel("Dataset 1:"), 0, 0)
+        file_layout.addWidget(QLabel("Dataset 1 (lower Q data):"), 0, 0)
         file_layout.addWidget(self.file1_label, 0, 1)
         file_layout.addWidget(QPushButton("Browse...", clicked=self.select_file1), 0, 2)
         
-        file_layout.addWidget(QLabel("Dataset 2:"), 1, 0)
+        file_layout.addWidget(QLabel("Dataset 2 (higher Q data):"), 1, 0)
         file_layout.addWidget(self.file2_label, 1, 1)
         file_layout.addWidget(QPushButton("Browse...", clicked=self.select_file2), 1, 2)
         
