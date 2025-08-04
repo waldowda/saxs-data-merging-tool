@@ -56,7 +56,7 @@ Features:
 
 Citation:
     If you use this tool in your research, please cite:
-    Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.0) [Computer software]. 
+    Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.1) [Computer software]. 
     Zenodo. https://doi.org/10.5281/zenodo.16734022
 
 Changelog:
