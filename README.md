@@ -4,7 +4,7 @@ A PyQt5 GUI application for merging Small Angle X-ray Scattering (SAXS) datasets
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16734022.svg)](https://doi.org/10.5281/zenodo.16734022)
 
-> **Note:** This tool was developed using Claude.AI. Always verify that the data merging results make sense for your specific research application.
+> **Note:** This tool was developed using Claude AI. Always verify that the data merging results make sense for your specific research application.
 
 ## Features
 
