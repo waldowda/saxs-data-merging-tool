@@ -15,8 +15,8 @@ A PyQt5 GUI application for merging Small Angle X-ray Scattering (SAXS) datasets
 - **Comprehensive data export** with detailed metadata headers
 - **Multi-threaded processing** to prevent GUI freezing during analysis
 - **Smart Q-range validation** with automatic dataset swapping suggestions
-- **Ignores Xenocs headers
-- **Does not currently support uncertainties (planned for future update)
+- **Ignores Xenocs headers**
+- **Does not currently support** uncertainties (planned for future update)
 
 ## Installation
 
