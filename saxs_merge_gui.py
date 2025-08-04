@@ -2,7 +2,7 @@
 SAXS Data Merging Tool - PyQt5 GUI Version
 ===========================================
 
-Version: 1.0.0
+Version: 1.0.1
 Created: 2025
 Last Modified: August 2025
 
@@ -88,14 +88,74 @@ class SAXSProcessor:
     
     @staticmethod
     def load_saxs_data(filename, delimiter=None):
+        """
+        Load SAXS data from file. Assumes first column is Q, second is intensity.
+        Automatically detects and skips Xenocs headers and other common formats.
+        """
         try:
-            data = np.loadtxt(filename, delimiter=delimiter)
-            q = data[:, 0]
-            intensity = data[:, 1]
-            return q, intensity
-        except:
-            df = pd.read_csv(filename, delimiter=delimiter, header=None)
-            return df.iloc[:, 0].values, df.iloc[:, 1].values
+            # First, try to detect if this is a Xenocs file with header
+            with open(filename, 'r') as f:
+                lines = f.readlines()
+            
+            data_start_line = 0
+            xenocs_header_detected = False
+            
+            # Check for Xenocs header pattern
+            if lines[0].strip().startswith('###########'):
+                xenocs_header_detected = True
+                # Find the end of the header (second line of ###########)
+                for i, line in enumerate(lines[1:], 1):
+                    if line.strip().startswith('###########'):
+                        # Found end of header, data starts after column names
+                        data_start_line = i + 2  # Skip the ########## line and column header
+                        break
+                # Return status message for GUI logging
+                status_msg = f"Detected Xenocs header format, skipping {data_start_line} lines"
+                print(status_msg)  # Also print to terminal
+            
+            # If Xenocs header detected, load data starting from the appropriate line
+            if xenocs_header_detected:
+                data = np.loadtxt(filename, delimiter=delimiter, skiprows=data_start_line)
+            else:
+                # Try standard loading with automatic comment detection
+                data = np.loadtxt(filename, delimiter=delimiter, comments=['#', '%', ';'])
+            
+            # Extract Q and intensity columns
+            if data.shape[1] >= 2:
+                q = data[:, 0]
+                intensity = data[:, 1]
+                return q, intensity
+            else:
+                raise ValueError("Data file must have at least 2 columns (Q, Intensity)")
+                
+        except Exception as e:
+            # Fallback to pandas approach
+            try:
+                print(f"Standard loading failed ({str(e)}), trying pandas approach...")
+                
+                # Try to find where data starts by looking for numeric lines
+                with open(filename, 'r') as f:
+                    lines = f.readlines()
+                
+                data_start = 0
+                for i, line in enumerate(lines):
+                    line = line.strip()
+                    if line and not line.startswith('#') and not line.startswith('%'):
+                        # Try to parse as numbers
+                        try:
+                            parts = line.split()
+                            float(parts[0])  # Try to convert first part to float
+                            float(parts[1])  # Try to convert second part to float
+                            data_start = i
+                            break
+                        except (ValueError, IndexError):
+                            continue
+                
+                df = pd.read_csv(filename, delimiter=delimiter, header=None, skiprows=data_start)
+                return df.iloc[:, 0].values, df.iloc[:, 1].values
+                
+            except Exception as e2:
+                raise ValueError(f"Could not load data file: {str(e2)}")  # FIXED: Removed extra )
 
     @staticmethod
     def find_overlap_range(q1, q2):
@@ -262,28 +322,28 @@ class PlotCanvas(FigureCanvas):
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         
-        # Focus on overlap region with padding
-        padding = (q_overlap_end - q_overlap_start) * 0.2
-        q_plot_min = max(q_overlap_start - padding, min(np.min(q1), np.min(q2)))
-        q_plot_max = min(q_overlap_end + padding, max(np.max(q1), np.max(q2)))
+        # Plot full datasets (FIXED: Show complete Q range)
+        ax.loglog(q1, i1, 'b-', label='Dataset 1', linewidth=2, alpha=0.7)
+        ax.loglog(q2, i2, 'r-', label='Dataset 2 (original)', alpha=0.5)
+        ax.loglog(q2, i2 * scale_factor, 'r--', label='Dataset 2 (scaled)', linewidth=2)
         
-        mask1 = (q1 >= q_plot_min) & (q1 <= q_plot_max)
-        mask2 = (q2 >= q_plot_min) & (q2 <= q_plot_max)
-        
-        ax.loglog(q1[mask1], i1[mask1], 'b-', label='Dataset 1', linewidth=2)
-        ax.loglog(q2[mask2], i2[mask2], 'r-', label='Dataset 2 (original)', alpha=0.7)
-        ax.loglog(q2[mask2], i2[mask2] * scale_factor, 'r--', label='Dataset 2 (scaled)', linewidth=2)
-        
+        # Highlight overlap region
         ax.axvspan(q_overlap_start, q_overlap_end, alpha=0.2, color='gray', label='Available overlap')
         
+        # Highlight proposed merge region if provided
         if q_merge_start is not None and q_merge_end is not None:
             ax.axvspan(q_merge_start, q_merge_end, alpha=0.3, color='green', label='Proposed merge region')
             ax.axvline(q_merge_start, color='g', linestyle=':', linewidth=2)
             ax.axvline(q_merge_end, color='g', linestyle=':', linewidth=2)
         
+        # Set axis limits to show full data range (FIXED: Ensure full range visible)
+        q_min = min(np.min(q1), np.min(q2))
+        q_max = max(np.max(q1), np.max(q2))
+        ax.set_xlim(q_min * 0.8, q_max * 1.2)  # Add some padding
+        
         ax.set_xlabel('Q (Å⁻¹)')
         ax.set_ylabel('Intensity (log scale)')
-        ax.set_title('Overlap Region - Assess Merge Quality')
+        ax.set_title('Full Dataset View - Assess Merge Quality')
         ax.legend()
         ax.grid(True, alpha=0.3)
         
@@ -548,10 +608,25 @@ class SAXSMergeGUI(QMainWindow):
             return
             
         try:
-            # Load data
+            # Load data and capture Xenocs header message (FIXED: Log to GUI)
             self.log_message("Loading SAXS datasets...")
             self.q1, self.i1 = SAXSProcessor.load_saxs_data(self.file1)
+            
+            # Check if Xenocs header was detected and log to GUI
+            if self.file1:
+                with open(self.file1, 'r') as f:
+                    first_line = f.readline().strip()
+                if first_line.startswith('###########'):
+                    self.log_message("Detected Xenocs header in dataset 1 - automatically skipped")
+            
             self.q2, self.i2 = SAXSProcessor.load_saxs_data(self.file2)
+            
+            # Check if Xenocs header was detected and log to GUI
+            if self.file2:
+                with open(self.file2, 'r') as f:
+                    first_line = f.readline().strip()
+                if first_line.startswith('###########'):
+                    self.log_message("Detected Xenocs header in dataset 2 - automatically skipped")
             
             self.log_message(f"Dataset 1: Q range {self.q1.min():.4f} to {self.q1.max():.4f} ({len(self.q1)} points)")
             self.log_message(f"Dataset 2: Q range {self.q2.min():.4f} to {self.q2.max():.4f} ({len(self.q2)} points)")
