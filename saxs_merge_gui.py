@@ -424,7 +424,7 @@ class SAXSMergeGUI(QMainWindow):
         title_layout.addWidget(title)
         
         # Version info
-        version_label = QLabel('Version 1.0.0')
+        version_label = QLabel('Version 1.0.1')
         version_label.setFont(QFont('Arial', 10))
         version_label.setAlignment(Qt.AlignCenter)
         version_label.setStyleSheet("color: gray;")
