@@ -1,208 +1,251 @@
 # SAXS Data Merging Tool
 
-A PyQt5 GUI application for merging Small Angle X-ray Scattering (SAXS) datasets with overlapping Q ranges, specifically developed for data from Xenocs X-Ray Scattering Instruments.
-
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16734022.svg)](https://doi.org/10.5281/zenodo.16734022)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
-> **Note:** This tool was developed using Claude.AI. Always verify that the data merging results make sense for your specific research application.
+A professional graphical tool for merging Small Angle X-ray Scattering (SAXS) datasets with overlapping Q ranges. Features automatic merge region detection, optional intensity scaling, error propagation, and interactive visualization.
+
+![SAXS Merge Tool Screenshot](screenshot.png)
 
 ## Features
 
-- **Interactive file selection** with automatic format detection
-- **Automatic merge region optimization** using RMS minimization
-- **3-column data support** for Q, Intensity, and Error data
-- **Error-weighted scaling** to match dataset intensities using inverse variance weighting
-- **Proper uncertainty propagation** in overlap regions with weighted averaging
-- **Optional error bar plotting** with performance-optimized display
-- **Real-time preview** of merge regions and data quality assessment
-- **Comprehensive data export** with detailed metadata headers including error data
-- **Multi-threaded processing** to prevent GUI freezing during analysis
-- **Smart Q-range validation** with automatic dataset swapping suggestions
-- **Xenocs header detection** and automatic skipping
+### Core Functionality
+- **Intelligent Data Loading**: Automatic detection and handling of various SAXS data formats including Xenocs headers
+- **Automatic Q-Range Validation**: Detects when datasets are loaded in wrong order with automatic swap option
+- **Smart Merge Region Detection**: Automatically finds optimal merge regions based on data overlap quality
+- **Error Propagation**: Full support for uncertainty data with proper error-weighted averaging
+- **Interactive Visualization**: Real-time preview of merge regions and final results
+
+### Advanced Capabilities
+- **Multi-column Support**: Handles 2-column (Q, I) or 3-column (Q, I, σ) data formats
+- **Intensity Scaling**: Optional scaling with error-weighted calculation for accurate dataset matching
+- **Quality Assessment**: Visual feedback for merge quality with comprehensive plotting
+- **Comprehensive Export**: Saves merged data with full metadata and publication-ready plots
 
 ## Installation
 
-### Prerequisites
+### Requirements
 - Python 3.7 or higher
-- Required Python packages (see requirements.txt)
-
-### Setup Instructions
-
-1. **Clone this repository:**
-   ```bash
-   git clone https://github.com/waldowda/saxs-data-merging-tool.git
-   cd saxs-data-merging-tool
-   ```
-
-2. **Install required packages:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Make the script executable (macOS/Linux):**
-   ```bash
-   chmod +x saxs_merge_gui.py
-   ```
-
-4. **Run the application:**
-   ```bash
-   python saxs_merge_gui.py
-   ```
-
-### Dependencies
 - PyQt5 >= 5.12
 - matplotlib >= 3.3
 - numpy >= 1.19
 - pandas >= 1.2
 - scipy >= 1.6
 
-## Usage Guide
+### Install Dependencies
 
-### Step-by-Step Instructions
+```bash
+# Using pip
+pip install PyQt5 matplotlib numpy pandas scipy
 
-1. **Launch the application:**
-   ```bash
-   python saxs_merge_gui.py
-   ```
+# Using conda
+conda install pyqt matplotlib numpy pandas scipy
+```
 
-2. **Load your datasets:**
-   - **Dataset 1 (lower Q data):** Select your low-angle/long-distance measurement file
-   - **Dataset 2 (higher Q data):** Select your wide-angle/short-distance measurement file
-   
-   The tool will automatically validate Q-range ordering and suggest swapping if needed.
+### Download and Run
 
-3. **Configure merge settings:**
-   - Choose whether to apply intensity scaling to match datasets
-   - Use the "Find Auto Merge Region" button for automatic optimization
-   - Or manually adjust the Q start/end values for custom merge ranges
+```bash
+# Clone or download the repository
+git clone https://github.com/waldowda/saxs-data-merging-tool.git
+cd saxs-data-merging-tool
 
-4. **Preview and evaluate:**
-   - Click "Preview Merge Region" to visualize the overlap
-   - Assess data quality and noise levels in the proposed merge region
-   - Adjust merge boundaries if necessary
+# Run the application
+python saxs_merge_gui.py
+```
 
-5. **Merge datasets:**
-   - Click "Merge Datasets" to perform the combination
-   - Review the final merged plot showing original and combined data
+## Usage
 
-6. **Save results:**
-   - Click "Save Results" and choose filename/location
-   - Both data file (.dat) and plot (.png) are automatically saved
-   - Comprehensive metadata is included in the output file header
+### Quick Start
+1. **Launch the application**: Run `python saxs_merge_gui.py`
+2. **Load datasets**: 
+   - Select Dataset 1 (lower Q data) using the first Browse button
+   - Select Dataset 2 (higher Q data) using the second Browse button
+3. **Automatic validation**: The tool will check Q-range ordering and offer to swap if needed
+4. **Find merge region**: Click "Find Auto Merge Region" for optimal automatic detection
+5. **Preview**: Click "Preview Merge Region" to visualize the proposed merge
+6. **Merge**: Click "Merge Datasets" to perform the actual merging
+7. **Save**: Use "Save Results" to export the merged data and plots
 
-7. **Process additional datasets:**
-   - Click "New Analysis" to reset and process another pair of datasets
+### Supported File Formats
+- `.dat` - Standard SAXS data files
+- `.txt` - Text files with columnar data
+- `.csv` - Comma-separated values
+- `.xy` - XY data format
+- `.chi` - Chi format files
+- **Xenocs format** - Automatically detected and handled
+
+### Data Column Formats
+- **2-column**: Q, Intensity (errors estimated from Poisson statistics)
+- **3-column**: Q, Intensity, Error/Uncertainty
+
+## Workflow
+
+### 1. Data Loading and Validation
+The tool automatically:
+- Detects file headers (including Xenocs format)
+- Validates Q-range ordering between datasets
+- Estimates errors if not provided
+- Checks for data overlap
+
+### 2. Merge Region Optimization
+- **Automatic detection**: Uses mathematical optimization to find the best merge point
+- **Manual adjustment**: Fine-tune merge start/end points using spin boxes
+- **Visual preview**: Real-time plotting shows merge quality
+
+### 3. Data Merging Process
+- **Scaling calculation**: Error-weighted scaling factors for accurate intensity matching
+- **Overlap averaging**: Proper uncertainty propagation in merge regions
+- **Quality control**: Comprehensive validation of merge results
+
+### 4. Results and Export
+- **Visualization**: Dual-panel plots showing original and merged data
+- **Metadata preservation**: Complete processing history in output files
+- **Publication-ready**: High-resolution plots suitable for manuscripts
+
+## Example Output
+
+The merged dataset includes:
+```
+# Merged SAXS data from dataset1.dat and dataset2.dat
+# Merge range: Q = 0.085000 to 0.150000
+# Scaling applied: Yes
+# Scaling factor (dataset 2): 1.2345
+# Error propagation: Weighted averaging in overlap region
+# Total points: 1247
+# Q range: 0.005000 to 2.500000
+# Q(A^-1)  Intensity  Error
+5.000000e-03  1.234567e+02  5.678901e+00
+...
+```
 
 ## Advanced Features
 
-### Error Data Support (v1.0.2+)
-- **Automatic detection** of 3-column data files (Q, I, σ)
-- **Error-weighted merging** using inverse variance weighting
-- **Uncertainty propagation** throughout the merge process
-- **Error bar visualization** with optional display control
-- **Publication-ready output** with proper error representation
+### Error Handling
+- **Automatic error estimation**: Uses Poisson statistics when error column unavailable
+- **Zero/negative error handling**: Automatically corrects problematic error values
+- **Weighted calculations**: All scaling and averaging operations use proper error weighting
 
-### Xenocs Instrument Support
-- **Automatic header detection** and skipping for Xenocs files
-- **GUI logging** of header processing status
-- **Robust data parsing** with multiple fallback methods
+### Quality Control
+- **Visual validation**: Multiple plot views for assessing merge quality
+- **Statistical feedback**: Quantitative measures of merge success
+- **Diagnostic information**: Comprehensive logging of all processing steps
 
-## File Formats
-
-Supports common SAXS data formats:
-- `.dat`, `.txt` (space/tab delimited) 
-- `.csv` (comma separated)
-- `.xy`, `.chi` (two-column formats)
-
-**Expected format:** 
-- **2-column:** Q values, Intensity
-- **3-column:** Q values, Intensity, Error (recommended)
-- Automatic detection of data columns and Xenocs headers
-- Error estimation from Poisson statistics when error column unavailable
-
-## Algorithm Details
-
-The tool uses advanced uncertainty propagation and optimization techniques:
-
-### Merge Region Detection
-- **RMS minimization** to find optimal merge regions
-- **Edge avoidance** - searches central 60% of overlap to avoid noisy boundaries
-- **Median-based scaling** factors for robustness against outliers
-- **Common Q-grid interpolation** for accurate comparison
-
-### Error Handling and Propagation
-- **3-column support** with automatic error detection
-- **Inverse variance weighting** for error-weighted scaling: `w = 1/σ²`
-- **Proper uncertainty propagation** in overlap regions: `σ_merged = √(1/(w₁ + w₂))`
-- **Poisson estimation** when error data unavailable: `σ = √I`
-
-### Performance Optimizations
-- **Multi-threaded processing** for merge operations
-- **Error bar thinning** for large datasets in plots
-- **Efficient interpolation** algorithms for smooth merging
-
-## Author
-
-**Dean Waldow**  
-Pacific Lutheran University  
-Email: waldowda@plu.edu
-
-## Citation
-
-If you use this tool in your research, please cite:
-
-> Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.2) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.16734022
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Changelog
-
-### Version 1.0.2 (Latest)
-- ✅ **3-column data support** (Q, I, σ) with automatic detection
-- ✅ **Error-weighted scaling** using inverse variance weighting  
-- ✅ **Proper uncertainty propagation** in merge overlap regions
-- ✅ **Optional error bar plotting** with GUI checkbox control
-- ✅ **Enhanced user feedback** for error data detection
-- ✅ **Updated save format** to include error column
-- ✅ **Performance optimized** error bar display for large datasets
-
-### Version 1.0.1
-- 🔧 **Fixed syntax errors** in data loading functions
-- 🔧 **Full Q-range plotting** in preview windows (no more cropping)
-- 🔧 **Xenocs header GUI logging** for better user feedback
-- 🔧 **Improved error handling** and user experience
-
-### Version 1.0.0
-- 🎉 **Initial release** with PyQt5 GUI interface
-- 🎉 **Automatic merge region detection** using RMS optimization
-- 🎉 **Optional intensity scaling** functionality
-- 🎉 **Interactive plotting** and preview capabilities
+### Customization Options
+- **Scaling toggle**: Enable/disable intensity scaling
+- **Error bar display**: Toggle error bars in plots for clarity
+- **Manual merge regions**: Override automatic detection when needed
 
 ## Troubleshooting
 
 ### Common Issues
 
-**PyQt5 installation problems:**
-```bash
-pip install --user PyQt5  # User installation
-# or
-conda install pyqt        # Using conda
+**File loading errors:**
+- Ensure data files have numeric columns
+- Check for consistent delimiters (space, tab, comma)
+- Verify Q values are in ascending order
+
+**No overlap detected:**
+- Check that datasets actually overlap in Q-range
+- Verify datasets are in correct order (Dataset 1 = lower Q)
+- Consider if data units are consistent
+
+**Poor merge quality:**
+- Try adjusting merge region boundaries manually
+- Check if scaling should be enabled/disabled
+- Verify data quality in overlap region
+
+**Performance issues:**
+- For very large datasets (>10,000 points), consider data reduction
+- Close other applications to free memory
+- Use SSD storage for faster file access
+
+## Technical Details
+
+### Algorithms
+- **Merge point optimization**: Minimizes RMS difference in overlap regions
+- **Scaling calculation**: Error-weighted least squares fitting
+- **Interpolation**: Linear interpolation with proper error propagation
+- **Averaging**: Inverse-variance weighted averaging in overlap regions
+
+### Data Processing Pipeline
+1. File format detection and header parsing
+2. Q-range validation and optional dataset reordering
+3. Overlap region identification
+4. Scaling factor calculation (if enabled)
+5. Merge point optimization
+6. Data interpolation and averaging
+7. Results validation and export
+
+## Citation
+
+If you use this tool in your research, please cite:
+
+```bibtex
+@software{waldow2025saxs,
+  author = {Waldow, Dean},
+  title = {SAXS Data Merging Tool},
+  version = {1.0.3},
+  year = {2025},
+  publisher = {Zenodo},
+  doi = {10.5281/zenodo.16734022},
+  url = {https://doi.org/10.5281/zenodo.16734022}
+}
 ```
 
-**File permission errors:**
-- Ensure Python has access to your data files
-- On macOS: Check System Preferences > Security & Privacy > Files and Folders
+## License
 
-**Memory issues with large datasets:**
-- Consider downsampling very large files before merging
-- Close unnecessary applications to free memory
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Author
+
+**Dean Waldow**
+- Email: waldowda@plu.edu
+- Institution: Pacific Lutheran University
+- GitHub: [@waldowda](https://github.com/waldowda)
 
 ## Contributing
 
-Bug reports, feature requests, and contributions are welcome! Please open an issue or submit a pull request on GitHub.
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+### Development Setup
+```bash
+git clone https://github.com/waldowda/saxs-data-merging-tool.git
+cd saxs-data-merging-tool
+pip install -r requirements.txt
+```
+
+## Changelog
+
+### Version 1.0.3 (Current)
+- Added Q-range validation with automatic dataset swapping
+- Improved data loading workflow with user feedback
+- Enhanced error handling for edge cases
+
+### Version 1.0.2
+- Added error data support and uncertainty propagation
+- 3-column data support (Q, I, σ)
+- Error-weighted scaling and merging
+- Optional error bar plotting
+
+### Version 1.0.1
+- Fixed syntax errors and plotting issues
+- Full Q-range plotting implementation
+- Xenocs header detection and GUI logging
+
+### Version 1.0.0
+- Initial release with GUI interface
+- Automatic merge region detection
+- Optional scaling functionality
+- Interactive plotting and preview
+
+## Support
+
+For questions, bug reports, or feature requests:
+- Open an issue on GitHub
+- Email: waldowda@plu.edu
+- Check the [documentation](https://github.com/waldowda/saxs-data-merging-tool/wiki)
 
 ---
 
-**Disclaimer:** Always validate merged results against your experimental expectations and known standards.
+**Keywords**: SAXS, Small Angle X-ray Scattering, Data Merging, Python, PyQt5, Scientific Computing, X-ray Analysis

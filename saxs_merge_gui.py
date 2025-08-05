@@ -2,7 +2,7 @@
 SAXS Data Merging Tool - PyQt5 GUI Version
 ===========================================
 
-Version: 1.0.2
+Version: 1.0.3
 Created: 2025
 Last Modified: August 2025
 
@@ -56,10 +56,14 @@ Features:
 
 Citation:
     If you use this tool in your research, please cite:
-    Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.2) [Computer software]. 
+    Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.3) [Computer software]. 
     Zenodo. https://doi.org/10.5281/zenodo.16734022
 
 Changelog:
+    v1.0.3 - Added Q-range validation with automatic dataset swapping
+           - Detects when datasets are loaded in wrong order (Dataset 1 > Dataset 2)
+           - User-friendly dialog with automatic swap option
+           - Improved data loading workflow and user feedback
     v1.0.2 - Added error data support and uncertainty propagation
            - 3-column data support (Q, I, σ)
            - Error-weighted scaling and merging
@@ -573,7 +577,7 @@ class SAXSMergeGUI(QMainWindow):
         title_layout.addWidget(title)
         
         # Version info
-        version_label = QLabel('Version 1.0.2')
+        version_label = QLabel('Version 1.0.3')
         version_label.setFont(QFont('Arial', 10))
         version_label.setAlignment(Qt.AlignCenter)
         version_label.setStyleSheet("color: gray;")
@@ -797,6 +801,39 @@ class SAXSMergeGUI(QMainWindow):
             
             self.log_message(f"Dataset 1: Q range {self.q1.min():.4f} to {self.q1.max():.4f} ({len(self.q1)} points)")
             self.log_message(f"Dataset 2: Q range {self.q2.min():.4f} to {self.q2.max():.4f} ({len(self.q2)} points)")
+            
+            # Validate Q range ordering
+            q1_mean = np.mean(self.q1)
+            q2_mean = np.mean(self.q2)
+            
+            if q1_mean > q2_mean:
+                reply = QMessageBox.question(
+                    self, "Q Range Warning", 
+                    f"Dataset 1 has higher average Q ({q1_mean:.4f}) than Dataset 2 ({q2_mean:.4f}).\n\n"
+                    "For optimal merging, Dataset 1 should contain lower Q data and Dataset 2 should contain higher Q data.\n\n"
+                    "Would you like to swap the datasets automatically?",
+                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                    QMessageBox.Yes
+                )
+                
+                if reply == QMessageBox.Yes:
+                    # Swap the datasets
+                    self.file1, self.file2 = self.file2, self.file1
+                    self.q1, self.i1, self.e1, self.q2, self.i2, self.e2 = self.q2, self.i2, self.e2, self.q1, self.i1, self.e1
+                    
+                    # Update labels
+                    self.file1_label.setText(os.path.basename(self.file1))
+                    self.file2_label.setText(os.path.basename(self.file2))
+                    
+                    self.log_message("Datasets swapped automatically.")
+                    self.log_message(f"Dataset 1 (lower Q): Q range {self.q1.min():.4f} to {self.q1.max():.4f}")
+                    self.log_message(f"Dataset 2 (higher Q): Q range {self.q2.min():.4f} to {self.q2.max():.4f}")
+                    
+                elif reply == QMessageBox.Cancel:
+                    self.log_message("Data loading cancelled.")
+                    return
+                else:
+                    self.log_message("Proceeding with current dataset order (may not be optimal).")
             
             # Check if error data was loaded
             if self.e1 is not None and np.any(self.e1 != np.sqrt(np.abs(self.i1))):
