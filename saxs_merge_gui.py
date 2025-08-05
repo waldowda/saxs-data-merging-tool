@@ -2,7 +2,7 @@
 SAXS Data Merging Tool - PyQt5 GUI Version
 ===========================================
 
-Version: 1.0.1
+Version: 1.0.2
 Created: 2025
 Last Modified: August 2025
 
@@ -56,10 +56,16 @@ Features:
 
 Citation:
     If you use this tool in your research, please cite:
-    Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.1) [Computer software]. 
+    Waldow, D. (2025). SAXS Data Merging Tool (Version 1.0.2) [Computer software]. 
     Zenodo. https://doi.org/10.5281/zenodo.16734022
 
 Changelog:
+    v1.0.2 - Added error data support and uncertainty propagation
+           - 3-column data support (Q, I, σ)
+           - Error-weighted scaling and merging
+           - Optional error bar plotting
+           - Proper uncertainty propagation in overlap regions
+    v1.0.1 - Fixed syntax errors, full Q-range plotting, Xenocs header GUI logging
     v1.0.0 - Initial release with GUI interface
            - Automatic merge region detection
            - Optional scaling functionality
@@ -89,7 +95,7 @@ class SAXSProcessor:
     @staticmethod
     def load_saxs_data(filename, delimiter=None):
         """
-        Load SAXS data from file. Assumes first column is Q, second is intensity.
+        Load SAXS data from file. Handles 2 or 3 columns (Q, I, [σ]).
         Automatically detects and skips Xenocs headers and other common formats.
         """
         try:
@@ -120,11 +126,21 @@ class SAXSProcessor:
                 # Try standard loading with automatic comment detection
                 data = np.loadtxt(filename, delimiter=delimiter, comments=['#', '%', ';'])
             
-            # Extract Q and intensity columns
+            # Extract Q, intensity, and optional error columns
             if data.shape[1] >= 2:
                 q = data[:, 0]
                 intensity = data[:, 1]
-                return q, intensity
+                
+                # Check for error column (3rd column)
+                if data.shape[1] >= 3:
+                    errors = data[:, 2]
+                    # Handle zero or negative errors
+                    errors = np.where(errors <= 0, np.sqrt(np.abs(intensity)), errors)
+                else:
+                    # No error column - estimate from Poisson statistics
+                    errors = np.sqrt(np.abs(intensity))
+                
+                return q, intensity, errors
             else:
                 raise ValueError("Data file must have at least 2 columns (Q, Intensity)")
                 
@@ -152,7 +168,18 @@ class SAXSProcessor:
                             continue
                 
                 df = pd.read_csv(filename, delimiter=delimiter, header=None, skiprows=data_start)
-                return df.iloc[:, 0].values, df.iloc[:, 1].values
+                
+                q = df.iloc[:, 0].values
+                intensity = df.iloc[:, 1].values
+                
+                # Check for error column
+                if df.shape[1] >= 3:
+                    errors = df.iloc[:, 2].values
+                    errors = np.where(errors <= 0, np.sqrt(np.abs(intensity)), errors)
+                else:
+                    errors = np.sqrt(np.abs(intensity))
+                
+                return q, intensity, errors
                 
             except Exception as e2:
                 raise ValueError(f"Could not load data file: {str(e2)}")  # FIXED: Removed extra )
@@ -168,7 +195,7 @@ class SAXSProcessor:
         return q_min_overlap, q_max_overlap
 
     @staticmethod
-    def calculate_scaling_factor(q1, i1, q2, i2, q_overlap_start, q_overlap_end):
+    def calculate_scaling_factor(q1, i1, q2, i2, q_overlap_start, q_overlap_end, e1=None, e2=None):
         mask1 = (q1 >= q_overlap_start) & (q1 <= q_overlap_end)
         mask2 = (q2 >= q_overlap_start) & (q2 <= q_overlap_end)
         
@@ -184,11 +211,37 @@ class SAXSProcessor:
                               bounds_error=False, fill_value='extrapolate')
         i2_interp = interp_func(q1_overlap)
         
-        valid_mask = ~np.isnan(i2_interp) & (i2_interp > 0) & (i1_overlap > 0)
-        if np.sum(valid_mask) == 0:
-            return 1.0
+        # Use error-weighted scaling if errors are provided
+        if e1 is not None and e2 is not None:
+            e1_overlap = e1[mask1]
+            e2_overlap = e2[mask2]
+            
+            # Interpolate errors for dataset 2
+            interp_err_func = interp1d(q2_overlap, e2_overlap, kind='linear', 
+                                     bounds_error=False, fill_value='extrapolate')
+            e2_interp = interp_err_func(q1_overlap)
+            
+            # Weight by inverse variance for more accurate scaling
+            weights = 1.0 / (e1_overlap**2 + e2_interp**2)
+            valid_mask = ~np.isnan(i2_interp) & (i2_interp > 0) & (i1_overlap > 0) & ~np.isnan(weights)
+            
+            if np.sum(valid_mask) == 0:
+                return 1.0
+            
+            # Weighted least squares scaling factor
+            weights_valid = weights[valid_mask]
+            i1_valid = i1_overlap[valid_mask]
+            i2_valid = i2_interp[valid_mask]
+            
+            scaling_factor = np.sum(weights_valid * i1_valid * i2_valid) / np.sum(weights_valid * i2_valid**2)
+        else:
+            # Original method without error weighting
+            valid_mask = ~np.isnan(i2_interp) & (i2_interp > 0) & (i1_overlap > 0)
+            if np.sum(valid_mask) == 0:
+                return 1.0
+            
+            scaling_factor = np.median(i1_overlap[valid_mask] / i2_interp[valid_mask])
         
-        scaling_factor = np.median(i1_overlap[valid_mask] / i2_interp[valid_mask])
         return scaling_factor
 
     @staticmethod
@@ -235,66 +288,113 @@ class SAXSProcessor:
         return result.x
 
     @staticmethod
-    def merge_saxs_data(q1, i1, q2, i2, q_merge_start, q_merge_end, apply_scaling=True):
+    def merge_saxs_data(q1, i1, q2, i2, q_merge_start, q_merge_end, apply_scaling=True, e1=None, e2=None):
         scale_factor = 1.0
         i2_scaled = i2.copy()
+        e2_scaled = e2.copy() if e2 is not None else None
         
         if apply_scaling:
-            scale_factor = SAXSProcessor.calculate_scaling_factor(q1, i1, q2, i2, q_merge_start, q_merge_end)
+            scale_factor = SAXSProcessor.calculate_scaling_factor(q1, i1, q2, i2, q_merge_start, q_merge_end, e1, e2)
             i2_scaled = i2 * scale_factor
+            if e2 is not None:
+                e2_scaled = e2 * scale_factor  # Scale errors proportionally
         
         q_merged = []
         i_merged = []
+        e_merged = []
         
         # Add dataset 1 up to merge start
         mask1_before = q1 < q_merge_start
         q_merged.extend(q1[mask1_before])
         i_merged.extend(i1[mask1_before])
+        if e1 is not None:
+            e_merged.extend(e1[mask1_before])
+        else:
+            e_merged.extend(np.sqrt(np.abs(i1[mask1_before])))
         
-        # Create overlap region with averaging
+        # Create overlap region with proper error propagation
         q_overlap = np.linspace(q_merge_start, q_merge_end, 100)
         
         interp1 = interp1d(q1, i1, kind='linear', bounds_error=False, fill_value=np.nan)
         interp2 = interp1d(q2, i2_scaled, kind='linear', bounds_error=False, fill_value=np.nan)
         
+        # Interpolate errors
+        if e1 is not None:
+            interp_e1 = interp1d(q1, e1, kind='linear', bounds_error=False, fill_value=np.nan)
+        else:
+            interp_e1 = lambda q: np.sqrt(np.abs(interp1(q)))
+            
+        if e2_scaled is not None:
+            interp_e2 = interp1d(q2, e2_scaled, kind='linear', bounds_error=False, fill_value=np.nan)
+        else:
+            interp_e2 = lambda q: np.sqrt(np.abs(interp2(q)))
+        
         i1_overlap = interp1(q_overlap)
         i2_overlap = interp2(q_overlap)
+        e1_overlap = interp_e1(q_overlap)
+        e2_overlap = interp_e2(q_overlap)
         
+        # Weighted averaging in overlap region
         for i, q_val in enumerate(q_overlap):
             if not np.isnan(i1_overlap[i]) and not np.isnan(i2_overlap[i]):
+                # Error-weighted average
+                if not np.isnan(e1_overlap[i]) and not np.isnan(e2_overlap[i]) and e1_overlap[i] > 0 and e2_overlap[i] > 0:
+                    w1 = 1.0 / e1_overlap[i]**2
+                    w2 = 1.0 / e2_overlap[i]**2
+                    w_total = w1 + w2
+                    
+                    i_avg = (w1 * i1_overlap[i] + w2 * i2_overlap[i]) / w_total
+                    e_avg = np.sqrt(1.0 / w_total)  # Propagated uncertainty
+                else:
+                    # Simple average if errors unavailable
+                    i_avg = (i1_overlap[i] + i2_overlap[i]) / 2
+                    e_avg = np.sqrt(e1_overlap[i]**2 + e2_overlap[i]**2) / 2
+                
                 q_merged.append(q_val)
-                i_merged.append((i1_overlap[i] + i2_overlap[i]) / 2)
+                i_merged.append(i_avg)
+                e_merged.append(e_avg)
+                
             elif not np.isnan(i1_overlap[i]):
                 q_merged.append(q_val)
                 i_merged.append(i1_overlap[i])
+                e_merged.append(e1_overlap[i] if not np.isnan(e1_overlap[i]) else np.sqrt(abs(i1_overlap[i])))
             elif not np.isnan(i2_overlap[i]):
                 q_merged.append(q_val)
                 i_merged.append(i2_overlap[i])
+                e_merged.append(e2_overlap[i] if not np.isnan(e2_overlap[i]) else np.sqrt(abs(i2_overlap[i])))
         
         # Add dataset 2 after merge end
         mask2_after = q2 > q_merge_end
         q_merged.extend(q2[mask2_after])
         i_merged.extend(i2_scaled[mask2_after])
+        if e2_scaled is not None:
+            e_merged.extend(e2_scaled[mask2_after])
+        else:
+            e_merged.extend(np.sqrt(np.abs(i2_scaled[mask2_after])))
         
+        # Convert to arrays and sort by Q
         q_merged = np.array(q_merged)
         i_merged = np.array(i_merged)
+        e_merged = np.array(e_merged)
         
         sort_indices = np.argsort(q_merged)
         q_merged = q_merged[sort_indices]
         i_merged = i_merged[sort_indices]
+        e_merged = e_merged[sort_indices]
         
-        return q_merged, i_merged, scale_factor
+        return q_merged, i_merged, e_merged, scale_factor
 
 class MergeWorker(QThread):
     """Worker thread for processing to avoid GUI freezing"""
-    finished = pyqtSignal(object, object, float)
+    finished = pyqtSignal(object, object, object, float)  # Added error data
     progress = pyqtSignal(str)
     error = pyqtSignal(str)
     
-    def __init__(self, q1, i1, q2, i2, q_merge_start, q_merge_end, apply_scaling):
+    def __init__(self, q1, i1, q2, i2, q_merge_start, q_merge_end, apply_scaling, e1=None, e2=None):
         super().__init__()
         self.q1, self.i1 = q1, i1
         self.q2, self.i2 = q2, i2
+        self.e1, self.e2 = e1, e2
         self.q_merge_start = q_merge_start
         self.q_merge_end = q_merge_end
         self.apply_scaling = apply_scaling
@@ -302,10 +402,10 @@ class MergeWorker(QThread):
     def run(self):
         try:
             self.progress.emit("Merging datasets...")
-            q_merged, i_merged, scale_factor = SAXSProcessor.merge_saxs_data(
+            q_merged, i_merged, e_merged, scale_factor = SAXSProcessor.merge_saxs_data(
                 self.q1, self.i1, self.q2, self.i2, 
-                self.q_merge_start, self.q_merge_end, self.apply_scaling)
-            self.finished.emit(q_merged, i_merged, scale_factor)
+                self.q_merge_start, self.q_merge_end, self.apply_scaling, self.e1, self.e2)
+            self.finished.emit(q_merged, i_merged, e_merged, scale_factor)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -318,14 +418,30 @@ class PlotCanvas(FigureCanvas):
         self.setParent(parent)
         
     def plot_overlap_region(self, q1, i1, q2, i2, q_overlap_start, q_overlap_end, 
-                           q_merge_start=None, q_merge_end=None, scale_factor=1.0):
+                           q_merge_start=None, q_merge_end=None, scale_factor=1.0, 
+                           show_errors=True, e1=None, e2=None):
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         
         # Plot full datasets (FIXED: Show complete Q range)
-        ax.loglog(q1, i1, 'b-', label='Dataset 1', linewidth=2, alpha=0.7)
-        ax.loglog(q2, i2, 'r-', label='Dataset 2 (original)', alpha=0.5)
-        ax.loglog(q2, i2 * scale_factor, 'r--', label='Dataset 2 (scaled)', linewidth=2)
+        if show_errors and e1 is not None and e2 is not None:
+            # Plot with error bars
+            ax.errorbar(q1, i1, yerr=e1, fmt='b-', label='Dataset 1', linewidth=2, alpha=0.7, 
+                       errorevery=max(1, len(q1)//50), capsize=3)
+            ax.errorbar(q2, i2, yerr=e2, fmt='r-', label='Dataset 2 (original)', alpha=0.5,
+                       errorevery=max(1, len(q2)//50), capsize=3)
+            ax.errorbar(q2, i2 * scale_factor, yerr=e2 * scale_factor, fmt='r--', 
+                       label='Dataset 2 (scaled)', linewidth=2, 
+                       errorevery=max(1, len(q2)//50), capsize=3)
+        else:
+            # Plot without error bars
+            ax.loglog(q1, i1, 'b-', label='Dataset 1', linewidth=2, alpha=0.7)
+            ax.loglog(q2, i2, 'r-', label='Dataset 2 (original)', alpha=0.5)
+            ax.loglog(q2, i2 * scale_factor, 'r--', label='Dataset 2 (scaled)', linewidth=2)
+        
+        # Set log scale
+        ax.set_xscale('log')
+        ax.set_yscale('log')
         
         # Highlight overlap region
         ax.axvspan(q_overlap_start, q_overlap_end, alpha=0.2, color='gray', label='Available overlap')
@@ -350,15 +466,32 @@ class PlotCanvas(FigureCanvas):
         self.draw()
     
     def plot_final_results(self, q1, i1, q2, i2, q_merged, i_merged, 
-                          q_merge_start, q_merge_end, scale_factor, apply_scaling):
+                          q_merge_start, q_merge_end, scale_factor, apply_scaling,
+                          show_errors=True, e1=None, e2=None, e_merged=None):
         self.fig.clear()
         
         # Original datasets
         ax1 = self.fig.add_subplot(2, 1, 1)
-        ax1.loglog(q1, i1, 'b-', label='Dataset 1', alpha=0.7)
-        ax1.loglog(q2, i2, 'r-', label='Dataset 2', alpha=0.7)
-        if apply_scaling:
-            ax1.loglog(q2, i2 * scale_factor, 'r--', label='Dataset 2 (scaled)', alpha=0.7)
+        
+        if show_errors and e1 is not None and e2 is not None:
+            # Plot with error bars
+            ax1.errorbar(q1, i1, yerr=e1, fmt='b-', label='Dataset 1', alpha=0.7,
+                        errorevery=max(1, len(q1)//30), capsize=2)
+            ax1.errorbar(q2, i2, yerr=e2, fmt='r-', label='Dataset 2', alpha=0.7,
+                        errorevery=max(1, len(q2)//30), capsize=2)
+            if apply_scaling:
+                ax1.errorbar(q2, i2 * scale_factor, yerr=e2 * scale_factor, fmt='r--', 
+                           label='Dataset 2 (scaled)', alpha=0.7,
+                           errorevery=max(1, len(q2)//30), capsize=2)
+        else:
+            # Plot without error bars
+            ax1.loglog(q1, i1, 'b-', label='Dataset 1', alpha=0.7)
+            ax1.loglog(q2, i2, 'r-', label='Dataset 2', alpha=0.7)
+            if apply_scaling:
+                ax1.loglog(q2, i2 * scale_factor, 'r--', label='Dataset 2 (scaled)', alpha=0.7)
+        
+        ax1.set_xscale('log')
+        ax1.set_yscale('log')
         ax1.axvline(q_merge_start, color='g', linestyle=':', label='Merge start')
         ax1.axvline(q_merge_end, color='g', linestyle=':', label='Merge end')
         ax1.set_xlabel('Q (Å⁻¹)')
@@ -374,12 +507,28 @@ class PlotCanvas(FigureCanvas):
         
         # Merged dataset
         ax2 = self.fig.add_subplot(2, 1, 2)
-        ax2.loglog(q_merged, i_merged, 'k-', linewidth=2, label='Merged dataset')
-        ax2.loglog(q1, i1, 'b-', alpha=0.3, label='Dataset 1')
-        if apply_scaling:
-            ax2.loglog(q2, i2 * scale_factor, 'r-', alpha=0.3, label='Dataset 2 (scaled)')
+        
+        if show_errors and e_merged is not None:
+            # Plot merged data with error bars
+            ax2.errorbar(q_merged, i_merged, yerr=e_merged, fmt='k-', linewidth=2, 
+                        label='Merged dataset', errorevery=max(1, len(q_merged)//50), capsize=3)
+            # Background datasets without error bars for clarity
+            ax2.loglog(q1, i1, 'b-', alpha=0.3, label='Dataset 1')
+            if apply_scaling:
+                ax2.loglog(q2, i2 * scale_factor, 'r-', alpha=0.3, label='Dataset 2 (scaled)')
+            else:
+                ax2.loglog(q2, i2, 'r-', alpha=0.3, label='Dataset 2')
         else:
-            ax2.loglog(q2, i2, 'r-', alpha=0.3, label='Dataset 2')
+            # Plot without error bars
+            ax2.loglog(q_merged, i_merged, 'k-', linewidth=2, label='Merged dataset')
+            ax2.loglog(q1, i1, 'b-', alpha=0.3, label='Dataset 1')
+            if apply_scaling:
+                ax2.loglog(q2, i2 * scale_factor, 'r-', alpha=0.3, label='Dataset 2 (scaled)')
+            else:
+                ax2.loglog(q2, i2, 'r-', alpha=0.3, label='Dataset 2')
+        
+        ax2.set_xscale('log')
+        ax2.set_yscale('log')
         ax2.axvline(q_merge_start, color='g', linestyle=':', label='Merge start')
         ax2.axvline(q_merge_end, color='g', linestyle=':', label='Merge end')
         ax2.set_xlabel('Q (Å⁻¹)')
@@ -396,9 +545,9 @@ class SAXSMergeGUI(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.q1 = self.i1 = self.q2 = self.i2 = None
+        self.q1 = self.i1 = self.e1 = self.q2 = self.i2 = self.e2 = None
         self.q_overlap_start = self.q_overlap_end = None
-        self.q_merged = self.i_merged = None
+        self.q_merged = self.i_merged = self.e_merged = None
         self.scale_factor = 1.0
         self.file1 = self.file2 = ""
         
@@ -424,7 +573,7 @@ class SAXSMergeGUI(QMainWindow):
         title_layout.addWidget(title)
         
         # Version info
-        version_label = QLabel('Version 1.0.1')
+        version_label = QLabel('Version 1.0.2')
         version_label.setFont(QFont('Arial', 10))
         version_label.setAlignment(Qt.AlignCenter)
         version_label.setStyleSheet("color: gray;")
@@ -471,6 +620,11 @@ class SAXSMergeGUI(QMainWindow):
         self.scaling_checkbox = QCheckBox("Apply intensity scaling to match datasets")
         self.scaling_checkbox.setChecked(True)
         options_layout.addWidget(self.scaling_checkbox)
+        
+        self.errorbar_checkbox = QCheckBox("Show error bars in plots")
+        self.errorbar_checkbox.setChecked(True)
+        self.errorbar_checkbox.stateChanged.connect(self.on_errorbar_toggle)
+        options_layout.addWidget(self.errorbar_checkbox)
         
         layout.addWidget(options_group)
         
@@ -544,9 +698,9 @@ class SAXSMergeGUI(QMainWindow):
             self.worker.wait()
         
         # Clear data
-        self.q1 = self.i1 = self.q2 = self.i2 = None
+        self.q1 = self.i1 = self.e1 = self.q2 = self.i2 = self.e2 = None
         self.q_overlap_start = self.q_overlap_end = None
-        self.q_merged = self.i_merged = None
+        self.q_merged = self.i_merged = self.e_merged = None
         self.scale_factor = 1.0
         
         # Reset file paths and labels
@@ -579,6 +733,19 @@ class SAXSMergeGUI(QMainWindow):
         # Clear status log
         self.status_text.clear()
         self.log_message("--- New Analysis Started ---")
+    
+    def on_errorbar_toggle(self):
+        """Handle error bar checkbox toggle - refresh current plot"""
+        if hasattr(self, 'q_merged') and self.q_merged is not None:
+            # Refresh final results plot
+            self.plot_canvas.plot_final_results(
+                self.q1, self.i1, self.q2, self.i2, self.q_merged, self.i_merged,
+                self.q_start_spin.value(), self.q_end_spin.value(), 
+                self.scale_factor, self.scaling_checkbox.isChecked(),
+                self.errorbar_checkbox.isChecked(), self.e1, self.e2, self.e_merged)
+        elif hasattr(self, 'q1') and self.q1 is not None and hasattr(self, 'q2') and self.q2 is not None:
+            # Refresh preview plot
+            self.preview_merge()
         
     def select_file1(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -610,7 +777,7 @@ class SAXSMergeGUI(QMainWindow):
         try:
             # Load data and capture Xenocs header message (FIXED: Log to GUI)
             self.log_message("Loading SAXS datasets...")
-            self.q1, self.i1 = SAXSProcessor.load_saxs_data(self.file1)
+            self.q1, self.i1, self.e1 = SAXSProcessor.load_saxs_data(self.file1)
             
             # Check if Xenocs header was detected and log to GUI
             if self.file1:
@@ -619,7 +786,7 @@ class SAXSMergeGUI(QMainWindow):
                 if first_line.startswith('###########'):
                     self.log_message("Detected Xenocs header in dataset 1 - automatically skipped")
             
-            self.q2, self.i2 = SAXSProcessor.load_saxs_data(self.file2)
+            self.q2, self.i2, self.e2 = SAXSProcessor.load_saxs_data(self.file2)
             
             # Check if Xenocs header was detected and log to GUI
             if self.file2:
@@ -630,6 +797,17 @@ class SAXSMergeGUI(QMainWindow):
             
             self.log_message(f"Dataset 1: Q range {self.q1.min():.4f} to {self.q1.max():.4f} ({len(self.q1)} points)")
             self.log_message(f"Dataset 2: Q range {self.q2.min():.4f} to {self.q2.max():.4f} ({len(self.q2)} points)")
+            
+            # Check if error data was loaded
+            if self.e1 is not None and np.any(self.e1 != np.sqrt(np.abs(self.i1))):
+                self.log_message("Dataset 1: Error column detected and loaded")
+            else:
+                self.log_message("Dataset 1: No error column - using Poisson estimates")
+                
+            if self.e2 is not None and np.any(self.e2 != np.sqrt(np.abs(self.i2))):
+                self.log_message("Dataset 2: Error column detected and loaded")
+            else:
+                self.log_message("Dataset 2: No error column - using Poisson estimates")
             
             # Find overlap
             self.q_overlap_start, self.q_overlap_end = SAXSProcessor.find_overlap_range(self.q1, self.q2)
@@ -642,6 +820,10 @@ class SAXSMergeGUI(QMainWindow):
             
             # Set initial merge range
             self.q_start_spin.setRange(self.q_overlap_start, self.q_overlap_end)
+            self.q_end_spin.setRange(self.q_overlap_start, self.q_overlap_end)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error loading data: {str(e)}")
             self.q_end_spin.setRange(self.q_overlap_start, self.q_overlap_end)
             
         except Exception as e:
@@ -695,13 +877,14 @@ class SAXSMergeGUI(QMainWindow):
         scale_factor = 1.0
         if self.scaling_checkbox.isChecked():
             scale_factor = SAXSProcessor.calculate_scaling_factor(
-                self.q1, self.i1, self.q2, self.i2, q_merge_start, q_merge_end)
+                self.q1, self.i1, self.q2, self.i2, q_merge_start, q_merge_end, self.e1, self.e2)
         
         # Plot overlap region
         self.plot_canvas.plot_overlap_region(
             self.q1, self.i1, self.q2, self.i2, 
             self.q_overlap_start, self.q_overlap_end,
-            q_merge_start, q_merge_end, scale_factor)
+            q_merge_start, q_merge_end, scale_factor,
+            self.errorbar_checkbox.isChecked(), self.e1, self.e2)
         
         self.log_message(f"Previewing merge region: {q_merge_start:.4f} to {q_merge_end:.4f}")
         if self.scaling_checkbox.isChecked():
@@ -720,18 +903,19 @@ class SAXSMergeGUI(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
         
-        # Create worker thread
+        # Create worker thread with error data
         self.worker = MergeWorker(self.q1, self.i1, self.q2, self.i2, 
-                                 q_merge_start, q_merge_end, apply_scaling)
+                                 q_merge_start, q_merge_end, apply_scaling, self.e1, self.e2)
         self.worker.finished.connect(self.on_merge_finished)
         self.worker.progress.connect(self.log_message)
         self.worker.error.connect(self.on_merge_error)
         self.worker.start()
     
-    def on_merge_finished(self, q_merged, i_merged, scale_factor):
+    def on_merge_finished(self, q_merged, i_merged, e_merged, scale_factor):
         """Handle merge completion"""
         self.q_merged = q_merged
         self.i_merged = i_merged
+        self.e_merged = e_merged
         self.scale_factor = scale_factor
         
         self.progress_bar.setVisible(False)
@@ -740,10 +924,12 @@ class SAXSMergeGUI(QMainWindow):
         self.plot_canvas.plot_final_results(
             self.q1, self.i1, self.q2, self.i2, self.q_merged, self.i_merged,
             self.q_start_spin.value(), self.q_end_spin.value(), 
-            scale_factor, self.scaling_checkbox.isChecked())
+            scale_factor, self.scaling_checkbox.isChecked(),
+            self.errorbar_checkbox.isChecked(), self.e1, self.e2, e_merged)
         
         self.log_message(f"Merge completed! {len(q_merged)} points")
         self.log_message(f"Q range: {q_merged.min():.4f} to {q_merged.max():.4f}")
+        self.log_message("Error propagation: Properly weighted averaging in overlap region")
         
         if self.scaling_checkbox.isChecked():
             self.log_message(f"Scaling factor applied: {scale_factor:.4f}")
@@ -772,21 +958,22 @@ class SAXSMergeGUI(QMainWindow):
         
         if file_path:
             try:
-                # Save data with metadata header
-                merged_data = np.column_stack((self.q_merged, self.i_merged))
+                # Save data with metadata header (now includes errors)
+                merged_data = np.column_stack((self.q_merged, self.i_merged, self.e_merged))
                 
                 header_lines = [
                     f"Merged SAXS data from {os.path.basename(self.file1)} and {os.path.basename(self.file2)}",
                     f"Merge range: Q = {self.q_start_spin.value():.6f} to {self.q_end_spin.value():.6f}",
                     f"Scaling applied: {'Yes' if self.scaling_checkbox.isChecked() else 'No'}",
                     f"Scaling factor (dataset 2): {self.scale_factor:.6f}" if self.scaling_checkbox.isChecked() else "No scaling factor applied",
+                    f"Error propagation: Weighted averaging in overlap region",
                     f"Total points: {len(self.q_merged)}",
                     f"Q range: {self.q_merged.min():.6f} to {self.q_merged.max():.6f}",
-                    "Q(A^-1)  Intensity"
+                    "Q(A^-1)  Intensity  Error"
                 ]
                 header = '\n'.join([f"# {line}" for line in header_lines])
                 
-                np.savetxt(file_path, merged_data, header=header, fmt='%.6e  %.6e')
+                np.savetxt(file_path, merged_data, header=header, fmt='%.6e  %.6e  %.6e')
                 
                 # Save plot
                 plot_path = file_path.replace('.dat', '_plot.png').replace('.txt', '_plot.png')
