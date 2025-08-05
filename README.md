@@ -4,9 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
-A professional graphical tool for merging Small Angle X-ray Scattering (SAXS) datasets with overlapping Q ranges. Features automatic merge region detection, optional intensity scaling, error propagation, and interactive visualization.
-
-![SAXS Merge Tool Screenshot](screenshot.png)
+A professional graphical tool for merging Small Angle X-ray Scattering (SAXS) datasets with overlapping Q ranges. Features automatic merge region detection, optional intensity scaling, error propagation, and interactive visualization. This is written primarily through AI. As always, verify that the program functions for your needs.
 
 ## Features
 
